@@ -61,13 +61,13 @@ func main() {
 	fmt.Printf("Created %d nodes\n", index)
 
 
-	err = delete_all(sess)
+	/*err = delete_all(sess)
 
 	if err != nil {
 		log.Fatalln("Failed to delete nodes", err)
 	} else {
 		fmt.Printf("Created %d nodes\n", index)
-	}
+	}*/
 
 	sess.Close()
 	// handle driver lifetime based on your application lifetime requirements
@@ -98,17 +98,16 @@ func open_connection(user string, passwd string) (*neo4j.Session, *neo4j.Driver,
 }
 
 func write_node (session neo4j.Session, node []string ) error {
-	result, err := session.Run("CREATE (n:Item { id: $id, name: $name }) RETURN n.id, n.name", map[string]interface{}{
-		"id":   1,
-		"name": "Item 1",
-	})
+
+
+	attributes := map[string]interface{} {"tweet_id": node[0], "user_id": node[1]}
+	result, err := session.Run("CREATE (n:Item { tweet_id: $tweet_id, user_id: $user_id })", attributes)
 
 	if err != nil {
 		return err
 	}
 
 	return result.Err()
-
 }
 
 func delete_all_nodes(session neo4j.Session) error {
