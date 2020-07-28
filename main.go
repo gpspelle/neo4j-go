@@ -112,12 +112,30 @@ func main() {
 
 			}
 
-			err = add_hashuser_relation(sess, user_id, hashtag)
+			err = add_userhashtag_relation(sess, user_id, hashtag)
 
 			if err != nil {
 				log.Fatalln("Failed to write user-hashtag relation in the database", err)
 			}
 
+			err = add_tweethashtag_relation(sess, tweet_id, hashtag)
+
+			if err != nil {
+				log.Fatalln("Failed to write tweet-hashtag relation in the database", err)
+			}
+
+		}
+
+		err = add_tweetuser_relation(sess, tweet_id, user_id)
+
+		if err != nil {
+			log.Fatalln("Failed to write tweet-user relation in the database", err)
+		}
+
+		err = add_usertweet_relation(sess, user_id, tweet_id)
+
+		if err != nil {
+			log.Fatalln("Failed to write user-tweet relation in the database", err)
 		}
 
 		if index % 500 == 0 {
@@ -201,10 +219,48 @@ func add_hashtag_node (session neo4j.Session, hashtag string) error {
 	return result.Err()
 }
 
-func add_hashuser_relation(session neo4j.Session, user_id string, hashtag string) error {
+func add_userhashtag_relation(session neo4j.Session, user_id string, hashtag string) error {
 
 	attributes := map[string]interface{} {"user_id": user_id, "hashtag": hashtag}
-	result, err := session.Run("MATCH (a:User),(b:Hashtag) WHERE a.user_id = $user_id AND b.hashtag = $hashtag CREATE (a)-[r:POST]->(b)", attributes)
+	result, err := session.Run("MATCH (a:User),(b:Hashtag) WHERE a.user_id = $user_id AND b.hashtag = $hashtag CREATE (a)-[r:has_interest]->(b)", attributes)
+
+	if err != nil {
+		return err
+	}
+
+	return result.Err()
+}
+
+func add_usertweet_relation(session neo4j.Session, user_id string, tweet_id string) error {
+
+
+	attributes := map[string]interface{} {"user_id": user_id, "tweet_id": tweet_id}
+	result, err := session.Run("MATCH (a:User),(b:Tweet) WHERE a.user_id = $user_id AND b.tweet_id = $tweet_id CREATE (a)-[r:tweet]->(b)", attributes)
+
+	if err != nil {
+		return err
+	}
+
+	return result.Err()
+}
+
+func add_tweethashtag_relation(session neo4j.Session, tweet_id string, hashtag string) error {
+
+
+	attributes := map[string]interface{} {"tweet_id": tweet_id, "hashtag": hashtag}
+	result, err := session.Run("MATCH (a:Tweet),(b:Hashtag) WHERE a.tweet_id = $tweet_id AND b.hashtag = $hashtag CREATE (a)-[r:contain]->(b)", attributes)
+
+	if err != nil {
+		return err
+	}
+
+	return result.Err()
+}
+
+func add_tweetuser_relation(session neo4j.Session, tweet_id string, user_id string) error {
+
+	attributes := map[string]interface{} {"tweet_id": tweet_id, "user_id": user_id}
+	result, err := session.Run("MATCH (a:Tweet),(b:User) WHERE a.tweet_id = $tweet_id AND b.user_id = $user_id CREATE (a)-[r:mention]->(b)", attributes)
 
 	if err != nil {
 		return err
