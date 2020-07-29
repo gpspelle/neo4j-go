@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 func process_array_string(x string) []string {
@@ -39,6 +40,7 @@ func read_csv(filename string) *csv.Reader {
 func main() {
 
 
+	start := time.Now()
 	r := read_csv("tweet_data.csv")
 	session, driver, err := open_connection("neo4j", "neo4j")
 
@@ -80,7 +82,7 @@ func main() {
 		}
 
 		tweet_id := record[0]
-		err = add_tweet_node(sess, tweet_id)
+		err = add_node(sess, "Tweet", "tweet_id", tweet_id)
 
 		if err != nil {
 			log.Fatalln("Failed to write tweet in the database", err)
@@ -92,7 +94,9 @@ func main() {
 		// Only add never added nodes
 		if !found {
 			user_map[user_id] = true
-			err = add_user_node(sess, user_id, false)
+			att_type := []string {"user_id", "mentioned"}
+			att_vals := []string {user_id, "false"}
+			err = add_node_multi_attributes(sess, "User", att_type, att_vals)
 
 			if err != nil {
 				log.Fatalln("Failed to write user in the database", err)
@@ -113,7 +117,7 @@ func main() {
 			// Only add never added nodes
 			if !found {
 				hashtag_map[hashtag] = true
-				err = add_hashtag_node(sess, hashtag)
+				err = add_node(sess, "Hashtag", "hashtag", "'"+hashtag+"'")
 
 				if err != nil {
 					log.Fatalln("Failed to write hashtag in the database", err)
@@ -121,13 +125,13 @@ func main() {
 
 			}
 
-			err = add_userhashtag_relation(sess, user_id, hashtag)
+			err = add_relation(sess, "User", "user_id", user_id, "Hashtag", "hashtag", "'"+hashtag+"'", "has_interest")
 
 			if err != nil {
 				log.Fatalln("Failed to write user-hashtag relation in the database", err)
 			}
 
-			err = add_tweethashtag_relation(sess, tweet_id, hashtag)
+			err = add_relation(sess, "Tweet", "tweet_id", tweet_id, "Hashtag", "hashtag", "'"+hashtag+"'", "interests")
 
 			if err != nil {
 				log.Fatalln("Failed to write tweet-hashtag relation in the database", err)
@@ -148,7 +152,7 @@ func main() {
 			// Only add never added nodes
 			if !found {
 				url_map[url] = true
-				err = add_url_node(sess, url)
+				err = add_node(sess, "Url", "url", "'"+url+"'")
 
 				if err != nil {
 					log.Fatalln("Failed to write url in the database", err)
@@ -156,7 +160,6 @@ func main() {
 
 			}
 		}
-
 
 		mention_string := record[4]
 		mentions := process_array_string(mention_string)
@@ -171,21 +174,23 @@ func main() {
 			// Only add never added nodes
 			if !found {
 				user_map[mention] = true
-				err = add_user_node(sess, mention, true)
+				att_type_ := []string {"user_id", "mentioned"}
+				att_vals_ := []string {user_id, "true"}
+				err = add_node_multi_attributes(sess, "User", att_type_, att_vals_)
 
 				if err != nil {
 					log.Fatalln("Failed to write user in the database", err)
 				}
 			} else {
 				// if the user was added and mentioned need to change its attribute
-				err = set_mention(sess, user_id)
+				err = set_attribute(sess, "user_id", mention, "mentioned", "true")
 
 				if err != nil {
 					log.Fatalln("Failed to set mention in the database", err)
 				}
 			}
 
-			err = add_useruser_relation(sess, user_id, mention)
+			err = add_relation(sess, "User", "user_id", user_id, "User", "user_id", mention, "mention")
 
 			if err != nil {
 				log.Fatalln("Failed to write user-user relation in the database", err)
@@ -200,7 +205,7 @@ func main() {
 				if len(hashtag) == 0 {
 					continue;
 				}
-				err = add_urlhashtag_relation(sess, url, hashtag)
+				err = add_relation(sess, "Url", "url", "'"+url+"'", "Hashtag", "hashtag", "'"+hashtag+"'", "relates")
 
 				if err != nil {
 					log.Fatalln("Failed to write url-hashtag relation in the database", err)
@@ -217,7 +222,7 @@ func main() {
 				if len(url) == 0 {
 					continue;
 				}
-				err = add_hashtagurl_relation(sess, hashtag, url)
+				err = add_relation(sess, "Hashtag", "hashtag", "'"+hashtag+"'", "Url", "url", "'"+url+"'", "relates")
 
 				if err != nil {
 					log.Fatalln("Failed to write hashtag-url relation in the database", err)
@@ -225,13 +230,13 @@ func main() {
 			}
 		}
 
-		err = add_tweetuser_relation(sess, tweet_id, user_id)
+		err = add_relation(sess, "Tweet", "tweet_id", tweet_id, "User", "user_id", user_id, "by")
 
 		if err != nil {
 			log.Fatalln("Failed to write tweet-user relation in the database", err)
 		}
 
-		err = add_usertweet_relation(sess, user_id, tweet_id)
+		err = add_relation(sess, "User", "user_id", user_id, "Tweet", "tweet_id", tweet_id, "tweeted")
 
 		if err != nil {
 			log.Fatalln("Failed to write user-tweet relation in the database", err)
@@ -244,18 +249,11 @@ func main() {
 
 	fmt.Printf("Created %d nodes\n", index)
 
-
-	/*err = delete_all(sess)
-
-	if err != nil {
-		log.Fatalln("Failed to delete nodes", err)
-	}
-	*/
-
 	sess.Close()
-	// handle driver lifetime based on your application lifetime requirements
-	// driver's lifetime is usually bound by the application lifetime, which usually implies one driver instance per application
 	dri.Close()
+
+	elapsed := time.Since(start)
+	fmt.Printf("Time elapsed: %s\n", elapsed)
 
 }
 
@@ -280,11 +278,16 @@ func open_connection(user string, passwd string) (*neo4j.Session, *neo4j.Driver,
 
 }
 
-func add_tweet_node (session neo4j.Session, tweet_id string) error {
+func add_node_multi_attributes (session neo4j.Session, node_type string, node_att []string, node_att_value []string) error {
 
+	line := " { "
+	for ind, att := range node_att {
+		line = line + att + ": " + node_att_value[ind] + ", "
+	}
 
-	attributes := map[string]interface{} {"tweet_id": tweet_id}
-	result, err := session.Run("CREATE (n:Tweet { tweet_id: $tweet_id })", attributes)
+	line = line[:len(line)-2]
+	line = line + " })"
+	result, err := session.Run("CREATE (n:" + node_type + line, nil)
 
 	if err != nil {
 		return err
@@ -293,11 +296,9 @@ func add_tweet_node (session neo4j.Session, tweet_id string) error {
 	return result.Err()
 }
 
-func add_url_node (session neo4j.Session, url string) error {
+func add_node(session neo4j.Session, node_type string, node_att string, node_att_value string) error {
 
-
-	attributes := map[string]interface{} {"url": url}
-	result, err := session.Run("CREATE (n:Url { url: $url })", attributes)
+	result, err := session.Run("CREATE (n:" + node_type + " { " + node_att + ": " + node_att_value + " })", nil)
 
 	if err != nil {
 		return err
@@ -306,11 +307,9 @@ func add_url_node (session neo4j.Session, url string) error {
 	return result.Err()
 }
 
-func add_user_node (session neo4j.Session, user_id string, mention bool) error {
+func add_relation(session neo4j.Session, left_type string, left_att string, left_att_value string, right_type string, right_att string, right_att_value string, relation_name string) error {
 
-
-	attributes := map[string]interface{} {"user_id": user_id, "mention": mention}
-	result, err := session.Run("CREATE (n:User { user_id: $user_id, mention: $mention })", attributes)
+	result, err := session.Run("MATCH (a:" + left_type + "),(b:" + right_type + ") WHERE a." + left_att + " = " + left_att_value + " AND b." + right_att + " = " + right_att_value + " CREATE (a)-[r:" + relation_name + "]->(b)", nil)
 
 	if err != nil {
 		return err
@@ -319,119 +318,10 @@ func add_user_node (session neo4j.Session, user_id string, mention bool) error {
 	return result.Err()
 }
 
-func add_hashtag_node (session neo4j.Session, hashtag string) error {
+func set_attribute(session neo4j.Session, node_id string, node_id_value string, node_att string, node_att_value string) error {
 
-	attributes := map[string]interface{} {"hashtag": hashtag}
-	result, err := session.Run("CREATE (n:Hashtag { hashtag: $hashtag })", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func add_userhashtag_relation(session neo4j.Session, user_id string, hashtag string) error {
-
-	attributes := map[string]interface{} {"user_id": user_id, "hashtag": hashtag}
-	result, err := session.Run("MATCH (a:User),(b:Hashtag) WHERE a.user_id = $user_id AND b.hashtag = $hashtag CREATE (a)-[r:has_interest]->(b)", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func add_useruser_relation(session neo4j.Session, user_id_0 string, user_id_1 string) error {
-
-	attributes := map[string]interface{} {"user_id_0": user_id_0, "user_id_1": user_id_1}
-	result, err := session.Run("MATCH (a:User),(b:User) WHERE a.user_id = $user_id_0 AND b.user_id = $user_id_1 CREATE (a)-[r:mention]->(b)", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func add_urlhashtag_relation(session neo4j.Session, url string, hashtag string) error {
-
-	attributes := map[string]interface{} {"url": url, "hashtag": hashtag}
-	result, err := session.Run("MATCH (a:Url),(b:Hashtag) WHERE a.url = $url AND b.hashtag = $hashtag CREATE (a)-[r:relates]->(b)", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func add_hashtagurl_relation(session neo4j.Session, hashtag string, url string) error {
-
-	attributes := map[string]interface{} {"hashtag": hashtag, "url": url}
-	result, err := session.Run("MATCH (a:Hashtag),(b:Url) WHERE a.hashtag = $hashtag AND b.url = $url CREATE (a)-[r:relates]->(b)", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func add_usertweet_relation(session neo4j.Session, user_id string, tweet_id string) error {
-
-
-	attributes := map[string]interface{} {"user_id": user_id, "tweet_id": tweet_id}
-	result, err := session.Run("MATCH (a:User),(b:Tweet) WHERE a.user_id = $user_id AND b.tweet_id = $tweet_id CREATE (a)-[r:tweet]->(b)", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func add_tweethashtag_relation(session neo4j.Session, tweet_id string, hashtag string) error {
-
-
-	attributes := map[string]interface{} {"tweet_id": tweet_id, "hashtag": hashtag}
-	result, err := session.Run("MATCH (a:Tweet),(b:Hashtag) WHERE a.tweet_id = $tweet_id AND b.hashtag = $hashtag CREATE (a)-[r:contain]->(b)", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func add_tweetuser_relation(session neo4j.Session, tweet_id string, user_id string) error {
-
-	attributes := map[string]interface{} {"tweet_id": tweet_id, "user_id": user_id}
-	result, err := session.Run("MATCH (a:Tweet),(b:User) WHERE a.tweet_id = $tweet_id AND b.user_id = $user_id CREATE (a)-[r:mention]->(b)", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func set_mention(session neo4j.Session, user_id string) error {
-
-	attributes := map[string]interface{} {"user_id": user_id}
-	result, err := session.Run("MATCH (n { user_id: $user_id }) SET n.mention = true", attributes)
-
-	if err != nil {
-		return err
-	}
-
-	return result.Err()
-}
-
-func delete_all_nodes(session neo4j.Session) error {
-
-	result, err := session.Run("MATCH (n) DELETE n", map[string]interface{}{})
+	attributes := map[string]interface{} {"node_id_value": node_id_value, "node_att_value" : node_att_value}
+	result, err := session.Run("MATCH (n { " + node_id + ": $node_id_value }) SET n." + node_att + " = $node_att_value", attributes)
 
 	if err != nil {
 		return err
@@ -450,4 +340,3 @@ func delete_all(session neo4j.Session) error {
 
 	return result.Err()
 }
-
