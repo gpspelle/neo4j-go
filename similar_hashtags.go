@@ -9,7 +9,6 @@ import (
 	"unicode"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/unicode/norm"
-	"fmt"
 )
 
 func isMn(r rune) bool {
@@ -38,7 +37,15 @@ func process_array_string(x string) []string {
 	x = strings.Replace(x, "]", "", -1)
 	x = strings.Replace(x, "'", "", -1)
 	x = strings.Replace(x, " ", "", -1)
-	return strings.Split(x, ",")
+	splited := strings.Split(x, ",")
+
+	lower_case := []string{}
+
+	for _, s := range splited {
+		lower_case = append(lower_case, strings.ToLower(s))
+	}
+
+	return lower_case
 }
 
 func main() {
@@ -68,7 +75,6 @@ func main() {
 		write_line = append(write_line, header)
 	}
 
-	fmt.Println(write_line)
 	err = csvwriter.Write(write_line)
 
 	if err != nil {
@@ -123,7 +129,6 @@ func main() {
 
 		}
 
-		//fmt.Println(write_line)
 		err = csvwriter.Write(write_line)
 
 		if err != nil {

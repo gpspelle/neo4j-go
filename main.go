@@ -13,7 +13,7 @@ import (
 	"reflect"
 )
 
-func convert_month(month int) string {
+func convert_month(month int64) string {
 
 	if month == 1 {
 		return "January"
@@ -100,9 +100,14 @@ func add_node(session neo4j.Session, node_type string, node_att string, node_att
 	return result.Err()
 }
 
-func add_relation(session neo4j.Session, left_type string, left_att string, left_att_value string, right_type string, right_att string, right_att_value string, relation_name string) error {
+func add_relation(session neo4j.Session, left_type string, left_att string, left_att_value interface{}, right_type string, right_att string, right_att_value interface{}, relation_name string) error {
 
-	result, err := session.Run("MATCH (a:" + left_type + "),(b:" + right_type + ") WHERE a." + left_att + " = " + left_att_value + " AND b." + right_att + " = " + right_att_value + " CREATE (a)-[r:" + relation_name + "]->(b)", nil)
+	// MATCH (a:Tweet) WHERE a.tweet_id = '1283544124650643456' WITH a MATCH (b:User) WHERE b.user_id = '3122499118' WITH a, b CREATE (a)-[r:mentions]->(b)
+
+	real_left_att_value := fmt.Sprintf("%v", left_att_value)
+	real_right_att_value := fmt.Sprintf("%v", right_att_value)
+
+	result, err := session.Run("MATCH (a:" + left_type + ") WHERE a." + left_att + " = " + real_left_att_value + " WITH a MATCH (b:" + right_type + ") WHERE b." + right_att + " = " + real_right_att_value + " WITH a, b CREATE (a)-[r:" + relation_name + "]->(b)", nil)
 
 	if err != nil {
 		return err
@@ -111,9 +116,10 @@ func add_relation(session neo4j.Session, left_type string, left_att string, left
 	return result.Err()
 }
 
-func set_attribute(session neo4j.Session, node_id string, node_id_value string, node_att string, node_att_value string) error {
+func set_attribute(session neo4j.Session, node_id string, node_id_value interface{}, node_att string, node_att_value string) error {
 
-	attributes := map[string]interface{} {"node_id_value": node_id_value, "node_att_value" : node_att_value}
+	attributes := map[string]interface{} {"node_id_value": fmt.Sprintf("%v", node_id_value), "node_att_value" : node_att_value}
+
 	result, err := session.Run("MATCH (n { " + node_id + ": $node_id_value }) SET n." + node_att + " = $node_att_value", attributes)
 
 	if err != nil {
@@ -186,7 +192,7 @@ func main() {
 	dri := *driver
 
 	hashtag_map := make(map[string]bool)
-	user_map := make(map[string]bool)
+	user_map := make(map[int64]bool)
 	url_map := make(map[string]bool)
 
 	_, err = r.Read() // skip header
@@ -225,7 +231,7 @@ func main() {
 		tm := time.Unix(i, 0)
 		day := tm.Day()
 		month := tm.Month()
-		month_int := int(month)
+		month_int := int64(month)
 		month_str := convert_month(month_int)
 		year := tm.Year()
 		hour := tm.Hour()
@@ -250,13 +256,20 @@ func main() {
 		}
 
 		user_id := record[1]
-		_, found := user_map[user_id]  // found == true
+
+		user_id_int, err := strconv.ParseInt(user_id, 10, 64)
+
+		if err != nil {
+			log.Fatalln("Failed to convert user_id to int")
+		}
+
+		_, found := user_map[user_id_int]  // found == true
 
 		// Only add never added nodes
 		if !found {
-			user_map[user_id] = true
+			user_map[user_id_int] = true
 			att_type := []string {"user_id", "mentioned"}
-			att_vals := []interface{} {user_id, "false"}
+			att_vals := []interface{} {user_id_int, "false"}
 			err = add_node_multi_attributes(sess, "User", att_type, att_vals)
 
 			if err != nil {
@@ -285,13 +298,13 @@ func main() {
 
 			}
 
-			err = add_relation(sess, "Tweet", "tweet_id", tweet_id, "Hashtag", "hashtag", "'"+hashtag+"'", "contains")
+			err = add_relation(sess, "Tweet", "tweet_id", tweet_id_int, "Hashtag", "hashtag", "'"+hashtag+"'", "contains")
 
 			if err != nil {
 				log.Fatalln("Failed to write tweet-hashtag relation in the database", err)
 			}
 
-			err = add_relation(sess, "Hashtag", "hashtag", "'"+hashtag+"'", "Tweet", "tweet_id", tweet_id, "contained")
+			err = add_relation(sess, "Hashtag", "hashtag", "'"+hashtag+"'", "Tweet", "tweet_id", tweet_id_int, "contained")
 
 			if err != nil {
 				log.Fatalln("Failed to write hashtag-tweet relation in the database", err)
@@ -320,13 +333,13 @@ func main() {
 
 			}
 
-			err = add_relation(sess, "Tweet", "tweet_id", tweet_id, "Url", "url", "'"+url+"'", "contains")
+			err = add_relation(sess, "Tweet", "tweet_id", tweet_id_int, "Url", "url", "'"+url+"'", "contains")
 
 			if err != nil {
 				log.Fatalln("Failed to write tweet-url relation in the database", err)
 			}
 
-			err = add_relation(sess, "Url", "url", "'"+url+"'", "Tweet", "tweet_id", tweet_id, "contained")
+			err = add_relation(sess, "Url", "url", "'"+url+"'", "Tweet", "tweet_id", tweet_id_int, "contained")
 
 			if err != nil {
 				log.Fatalln("Failed to write url-tweet relation in the database", err)
@@ -338,32 +351,39 @@ func main() {
 		mentions := process_array_string(mention_string)
 
 		for _, mention := range mentions {
-			_, found := user_map[mention]  // found == true
 
 			if len(mention) == 0 {
 				continue;
 			}
 
+
+			mention_int, err := strconv.ParseInt(mention, 10, 64)
+			_, found := user_map[mention_int]  // found == true
+
+			if err != nil {
+				log.Fatalln("Failed to convert mention to int")
+			}
+
 			// Only add never added nodes
 			if !found {
-				user_map[mention] = true
-				att_type_ := []string {"user_id", "mentioned"}
-				att_vals_ := []interface{} {user_id, "true"}
-				err = add_node_multi_attributes(sess, "User", att_type_, att_vals_)
+				user_map[mention_int] = true
+				att_type := []string {"user_id", "mentioned"}
+				att_vals := []interface{} {mention_int, "true"}
+				err = add_node_multi_attributes(sess, "User", att_type, att_vals)
 
 				if err != nil {
 					log.Fatalln("Failed to write user in the database", err)
 				}
 			} else {
 				// if the user was added and mentioned need to change its attribute
-				err = set_attribute(sess, "user_id", mention, "mentioned", "true")
+				err = set_attribute(sess, "user_id", mention_int, "mentioned", "true")
 
 				if err != nil {
 					log.Fatalln("Failed to set mention in the database", err)
 				}
 			}
 
-			err = add_relation(sess, "Tweet", "tweet_id", tweet_id, "User", "user_id", mention, "mentions")
+			err = add_relation(sess, "Tweet", "tweet_id", tweet_id_int, "User", "user_id", mention_int, "mentions")
 
 			if err != nil {
 				log.Fatalln("Failed to write tweet-user relation in the database", err)
@@ -403,13 +423,13 @@ func main() {
 			}
 		}
 
-		err = add_relation(sess, "User", "user_id", user_id, "Tweet", "tweet_id", tweet_id, "tweets")
+		err = add_relation(sess, "User", "user_id", user_id_int, "Tweet", "tweet_id", tweet_id_int, "tweets")
 
 		if err != nil {
 			log.Fatalln("Failed to write user-tweet relation in the database", err)
 		}
 
-		err = add_relation(sess, "Tweet", "tweet_id", tweet_id, "User", "user_id", user_id, "tweeted")
+		err = add_relation(sess, "Tweet", "tweet_id", tweet_id_int, "User", "user_id", user_id_int, "tweeted")
 
 		if err != nil {
 			log.Fatalln("Failed to write tweet-user relation in the database", err)
@@ -417,6 +437,7 @@ func main() {
 
 		if index % 500 == 0 {
 			fmt.Printf("Created %d tweet nodes\n", index)
+			break
 		}
 	}
 
