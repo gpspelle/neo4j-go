@@ -437,7 +437,6 @@ func main() {
 
 		if index % 500 == 0 {
 			fmt.Printf("Created %d tweet nodes\n", index)
-			break
 		}
 	}
 
