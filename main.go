@@ -246,8 +246,8 @@ func main() {
 			log.Fatalln("Failed to convert tweet_id to int")
 		}
 
-		att_type := []string {"tweet_id", "day", "month", "year", "hour", "minute", "second"}
-		att_val := []interface{} {tweet_id_int, day, month_str, year, hour, minute, second}
+		att_type := []string {"tweet_id", "day", "month", "year", "hour", "minute", "second", "timestamp"}
+		att_val := []interface{} {tweet_id_int, day, month_str, year, hour, minute, second, timestamp}
 
 		err = add_node_multi_attributes(sess, "Tweet", att_type, att_val)
 
@@ -441,33 +441,6 @@ func main() {
 	}
 
 	fmt.Printf("Created %d nodes\n", index)
-	fmt.Println("Removing duplicate relations and updating some stats")
-
-	err = execute_query(sess, "MATCH (A)-[r:relates]->(B) WITH A, COLLECT(r) as oldRels, B, COUNT(r) as W FOREACH(r IN oldRels | DELETE r) WITH A, W, B CREATE (A)-[O:relates {occurrences:W}]->(B)")
-
-	if err != nil {
-		log.Fatalln("Failed to merge relates relation", err)
-	}
-
-
-	err = execute_query(sess, "MATCH (A:Tweet)-[r:contains]->(B:Hashtag) WITH B, COUNT(r) as W SET B.presence = W")
-
-	if err != nil {
-		log.Fatalln("Failed to set Hashtag presence", err)
-	}
-
-	err = execute_query(sess, "MATCH (A:Tweet)-[r:mentions]->(B:User) WITH B, COUNT(r) as W SET B.popularity = W")
-
-	if err != nil {
-		log.Fatalln("Failed to set User popularity", err)
-	}
-
-	err = execute_query(sess, "MATCH (A:Tweet)-[r:contains]->(B:Url) WITH B, COUNT(r) as W SET B.popularity = W")
-
-	if err != nil {
-		log.Fatalln("Failed to set Url popularity", err)
-	}
-
 
 	sess.Close()
 	dri.Close()
